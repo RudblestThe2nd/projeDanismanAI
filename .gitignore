@@ -1,14 +1,41 @@
-# Local secrets / data
+# Environment / secrets
 .env
 .env.*
 !.env.example
+
+# Databases / local state
 *.db
 *.sqlite
 *.sqlite3
+*.db-journal
+
+# Python
 venv/
 .venv/
-node_modules/
+env/
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
 Thumbs.db
