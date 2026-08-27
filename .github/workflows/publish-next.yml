@@ -1,0 +1,48 @@
+name: Publish next project step
+
+on:
+  schedule:
+    - cron: "17 10,18 * * *"
+      timezone: "Europe/Istanbul"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the next step now"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: project-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'schedule' || inputs.publish == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish next encrypted step
+        id: release
+        env:
+          RELEASE_KEY: ${{ secrets.RELEASE_KEY }}
+        run: python .release/publish.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "${{ vars.PUBLIC_GIT_NAME }}"
+          git config user.email "${{ vars.PUBLIC_GIT_EMAIL }}"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "${{ steps.release.outputs.message }}"
+          git push

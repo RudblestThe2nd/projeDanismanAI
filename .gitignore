@@ -1,0 +1,14 @@
+# Local secrets / data
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+venv/
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
