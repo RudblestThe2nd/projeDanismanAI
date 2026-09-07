@@ -49,3 +49,53 @@ def _clean_response(text: str) -> str:
     return text.strip()
 
 
+def call_hf_endpoint(messages: list) -> str:
+    for msg in messages:
+        if len(msg["content"]) > 6000:
+            msg["content"] = msg["content"][:6000] + "\n...[metin kısaltıldı]"
+
+    if not HF_ENDPOINT or "buraya" in HF_ENDPOINT:
+        return (
+            "**[DEMO MODU]** Model henüz bağlı değil.\n\n"
+            f"Gönderilen mesaj sayısı: {len(messages)}"
+        )
+
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model":            "Rudblest/projedanismanai-v2-qwen3-14b",
+        "messages":         messages,
+        "max_tokens":       600,
+        "temperature":      0.3,
+        "repetition_penalty": 1.2,
+        "stream":           False,
+    }
+
+    try:
+        r = requests.post(
+            f"{HF_ENDPOINT}/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=300,
+        )
+
+        print(f"HF status: {r.status_code}")
+        print(f"HF response: {r.text[:300]}")
+
+        if r.status_code == 200:
+            content = r.json()["choices"][0]["message"]["content"]
+            return _clean_response(content)
+
+        return f"Model hatası: {r.status_code} — {r.text[:200]}"
+
+    except requests.exceptions.Timeout:
+        return "Zaman aşımı. Endpoint meşgul olabilir, tekrar dene."
+    except requests.exceptions.ConnectionError:
+        return "Bağlantı hatası. Endpoint URL'sini kontrol et."
+    except Exception as e:
+        return f"Bağlantı hatası: {str(e)}"
+
+
