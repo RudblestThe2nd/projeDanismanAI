@@ -99,3 +99,37 @@ def call_hf_endpoint(messages: list) -> str:
         return f"Bağlantı hatası: {str(e)}"
 
 
+def build_messages(skill_name: str, history: list, new_message: str) -> list:
+    print("=== GELEN HISTORY ===")
+    for i, m in enumerate(history):
+        print(f"[{i}] {m['role']}: {m['content'][:100]}")
+    print("=== SON MESAJ ===", new_message[:100])
+
+    skill_text = read_file(f"skills/{skill_name}.md")
+    if skill_text:
+        skill_text = skill_text[:800]
+
+    system_content = SYSTEM_PROMPT
+    if skill_text:
+        system_content += f"\n\n---\n{skill_text}"
+
+    messages = [{"role": "system", "content": system_content}]
+
+    for msg in history[-8:]:
+        content = msg["content"]
+        if msg["role"] == "assistant":
+            if _is_bad_assistant_response(content):
+                continue
+            if len(content.strip()) < 20:
+                continue
+        messages.append({"role": msg["role"], "content": content})
+
+    if len(new_message) > 6000:
+        new_message = new_message[:6000] + "\n...[metin kısaltıldı]"
+    # /no_think Qwen3'te kullanıcı mesajında olmalı, sistem promptunda değil
+    messages.append({"role": "user", "content": "/no_think\n" + new_message})
+    return messages
+
+
+def build_prompt(skill_name: str, history: list, new_message: str) -> list:
+    return build_messages(skill_name, history, new_message)
