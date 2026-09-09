@@ -135,3 +135,127 @@ _TR_SUFFIXES = (
 )
 
 
+def _stem_tr(word: str) -> str:
+    """Yaygın Türkçe ekleri kaldırır (basit yaklaşım)."""
+    for suffix in _TR_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[: -len(suffix)]
+    return word
+
+
+def _normalize_typos(word: str) -> str:
+    """Ardışık tekrar eden harfleri tek harfe indirir (alggoritma → algoritma)."""
+    return re.sub(r'(.)\1+', r'\1', word)
+
+
+def extract_query_keywords(query: str) -> List[str]:
+    """Sorgudan anlamlı Türkçe kelimeleri çıkarır, kök formuna indirir."""
+    words = re.findall(r'\b\w+\b', query.lower())
+    stems = set()
+    for w in words:
+        w = _normalize_typos(w)
+        if len(w) > 2 and w not in _TR_STOPWORDS:
+            stems.add(_stem_tr(w))
+    return list(stems)
+
+
+def keyword_match_sections(
+    sections: Dict[str, str],
+    query: str,
+    max_sections: int = 3,
+    max_chars: int = 5000,
+) -> str:
+    """
+    Sorguyla eşleşen bölümleri bulur ve birleşik metin olarak döner.
+    Önce başlıkta keyword ara (birincil). Bulamazsa içeriğe bak (ikincil).
+    Boş string dönerse fallback chunk yaklaşımı kullanılmalı.
+    """
+    keywords = extract_query_keywords(query)
+    if not keywords:
+        return ""
+
+    primary: List[tuple] = []   # başlıkta eşleşme var
+    secondary: List[tuple] = [] # sadece içerikte eşleşme var
+
+    for heading, content in sections.items():
+        if heading == "__giris__":
+            continue
+        h_lower = heading.lower()
+        c_lower = content.lower()
+        h_score = sum(1 for kw in keywords if kw in h_lower)
+        c_score = sum(1 for kw in keywords if kw in c_lower)
+
+        if h_score > 0:
+            primary.append((h_score * 3 + c_score, heading, content))
+        elif c_score >= 2:
+            secondary.append((c_score, heading, content))
+
+    primary.sort(key=lambda x: x[0], reverse=True)
+    secondary.sort(key=lambda x: x[0], reverse=True)
+
+    # Başlık eşleşmesi varsa onu kullan, yoksa içerik eşleşmesine düş
+    candidates = primary if primary else secondary
+    if not candidates:
+        return ""
+
+    parts = []
+    total_chars = 0
+    for _, heading, content in candidates[:max_sections]:
+        block = f"## {heading}\n{content}"
+        if total_chars + len(block) > max_chars:
+            block = block[: max_chars - total_chars]
+        parts.append(block)
+        total_chars += len(block)
+        if total_chars >= max_chars:
+            break
+
+    return "\n\n".join(parts)
+
+
+def chunk_text(text: str, chunk_size: int = 3000, overlap: int = 200) -> List[str]:
+    """
+    Metni chunk_size karakterlik parçalara böler.
+    overlap: ardışık chunk'lar arasında tekrar eden karakter sayısı (bağlam sürekliliği).
+    """
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+
+        # Kelime ortasında kesmemek için en yakın boşluğa git
+        if end < len(text):
+            last_space = text.rfind(" ", start, end)
+            if last_space > start:
+                end = last_space
+
+        chunks.append(text[start:end].strip())
+        start = end - overlap  # overlap kadar geri dön
+
+    return [c for c in chunks if c.strip()]
+
+
+def build_chunk_prompt(
+    user_instruction: str,
+    chunk: str,
+    chunk_index: int,
+    total_chunks: int,
+) -> str:
+    """Her chunk için modele gönderilecek prompt'u oluşturur."""
+    if total_chunks == 1:
+        return f"{user_instruction}\n\n---\nBELGE İÇERİĞİ:\n{chunk}"
+
+    if chunk_index == total_chunks - 1:
+        suffix = "Bu son bölüm. Tüm bölümlerdeki bulgularını özetle ve kullanıcının sorusuna net bir sonuç ver."
+    else:
+        suffix = "Sadece bu bölümde kullanıcının sorusuyla ilgili bilgileri kısaca çıkar. Tekrar etme, yorum katma."
+
+    return (
+        f"Kullanıcının sorusu: {user_instruction}\n\n"
+        f"---\n"
+        f"BELGE BÖLÜMÜ {chunk_index + 1}/{total_chunks}:\n"
+        f"{chunk}\n\n"
+        f"---\n{suffix}"
+    )
