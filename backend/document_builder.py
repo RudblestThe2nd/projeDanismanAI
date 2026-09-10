@@ -131,3 +131,71 @@ def _kapak_ekle(doc: Document, proje_adi: str, takim_adi: str):
 
 # ── Ana fonksiyon ─────────────────────────────────────────────────────────────
 
+def metin_to_docx(
+    metin: str,
+    proje_adi: str  = "ProjeDanışmanAI Raporu",
+    takim_adi: str  = "",
+) -> bytes:
+    """
+    Modelin yanıt metnini (markdown destekli) docx'e dönüştürür.
+    Bytes döner — StreamingResponse için kullanılır.
+    """
+    doc = Document()
+    _sayfa_ayarlari(doc)
+    _kapak_ekle(doc, proje_adi, takim_adi or "Kullanıcı")
+
+    for satir in metin.split("\n"):
+        satir = satir.rstrip()
+        if not satir:
+            doc.add_paragraph()
+            continue
+
+        if satir.startswith("### "):
+            _baslik_ekle(doc, satir[4:], seviye=2)
+        elif satir.startswith("## "):
+            _baslik_ekle(doc, satir[3:], seviye=2)
+        elif satir.startswith("# "):
+            _baslik_ekle(doc, satir[2:], seviye=1)
+        elif satir.startswith("- ") or satir.startswith("* "):
+            _madde_ekle(doc, satir[2:])
+        elif satir.startswith("**") and satir.endswith("**"):
+            _paragraf_ekle(doc, satir[2:-2], kalin=True)
+        else:
+            _paragraf_ekle(doc, satir)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def json_to_docx(veri: dict) -> bytes:
+    """
+    Modelin JSON çıktısını (proje_adi, takim_adi, bolumler) docx'e dönüştürür.
+    """
+    doc = Document()
+    _sayfa_ayarlari(doc)
+
+    proje_adi = veri.get("proje_adi", "Proje Raporu")
+    takim_adi = veri.get("takim_adi", "")
+    bolumler  = veri.get("bolumler", {})
+
+    _kapak_ekle(doc, proje_adi, takim_adi or "Kullanıcı")
+
+    for bolum_adi, icerik in bolumler.items():
+        _baslik_ekle(doc, bolum_adi, seviye=1)
+
+        if isinstance(icerik, list):
+            for madde in icerik:
+                _madde_ekle(doc, str(madde))
+        else:
+            for paragraf in str(icerik).split("\n"):
+                if paragraf.strip():
+                    _paragraf_ekle(doc, paragraf.strip())
+
+        doc.add_paragraph()
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
