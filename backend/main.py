@@ -53,3 +53,28 @@ class ConversationCreate(BaseModel):
     title: Optional[str] = "Yeni Sohbet"
 
 
+@app.post("/auth/register")
+def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == req.email).first():
+        raise HTTPException(status_code=400, detail="Bu email zaten kayıtlı")
+    user = User(email=req.email, hashed_password=hash_password(req.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"message": "Kayıt başarılı", "email": user.email}
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Email veya şifre hatalı")
+    token = create_access_token({"sub": user.email})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@app.get("/auth/me")
+def me(current_user: User = Depends(get_current_user)):
+    return {"id": current_user.id, "email": current_user.email}
+
+
