@@ -128,3 +128,64 @@ def delete_conversation(conv_id: int, db: Session = Depends(get_db),
     return {"message": "Sohbet silindi"}
 
 
+@app.post("/chat")
+def chat(req: ChatRequest, db: Session = Depends(get_db),
+         current_user: User = Depends(get_current_user)):
+    conv = db.query(Conversation).filter(
+        Conversation.id == req.conversation_id,
+        Conversation.user_id == current_user.id
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Sohbet bulunamadı")
+
+    skill_name = req.skill if req.skill != "otomatik" else detect_skill(req.message)
+
+    recent = db.query(Message).filter(
+        Message.conversation_id == req.conversation_id
+    ).order_by(Message.created_at.desc()).limit(4).all()
+    history = [{"role": m.role, "content": m.content} for m in reversed(recent)]
+
+    # Conversation'a bağlı belge varsa ilgili bölümleri mesaja ekle
+    user_message = req.message
+    if conv.document_sections:
+        try:
+            sections = json.loads(conv.document_sections)
+            matched = keyword_match_sections(sections, req.message)
+            if matched:
+                user_message = (
+                    f"{req.message}\n\n"
+                    f"---\n"
+                    f"BELGE METNİ ({conv.document_filename}):\n{matched}\n\n"
+                    f"---\n"
+                    f"Yanıt formatı:\n"
+                    f"1. **Belgede ne yazıyor:** Metinden doğrudan alıntı yap.\n"
+                    f"2. **Değerlendirme:** Alıntıya dayanarak Türkçe yaz.\n"
+                    f"KURAL: Belgede olmayan bilgi ekleme. İngilizce kullanma."
+                )
+            elif sections:
+                toc = "\n".join(f"- {h}" for h in sections if h != "__giris__")
+                user_message = (
+                    f"{req.message}\n\n"
+                    f"---\n"
+                    f"Not: '{conv.document_filename}' belgesi bu sohbete yüklendi ancak "
+                    f"sorulan konu belgede ayrı başlık olarak bulunmuyor.\n"
+                    f"Belgede yer alan bölümler:\n{toc}"
+                )
+        except Exception:
+            pass
+
+    messages = build_prompt(skill_name, history, user_message)
+    response_text = call_hf_endpoint(messages)
+
+    db.add(Message(conversation_id=req.conversation_id, role="user",
+                   content=req.message, skill_used=skill_name))
+    db.add(Message(conversation_id=req.conversation_id, role="assistant",
+                   content=response_text, skill_used=skill_name))
+
+    if conv.title == "Yeni Sohbet":
+        conv.title = req.message[:40] + ("..." if len(req.message) > 40 else "")
+
+    db.commit()
+    return {"response": response_text, "skill_used": skill_name}
+
+
