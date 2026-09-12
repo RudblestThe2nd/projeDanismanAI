@@ -78,3 +78,53 @@ def me(current_user: User = Depends(get_current_user)):
     return {"id": current_user.id, "email": current_user.email}
 
 
+@app.post("/conversations")
+def create_conversation(req: ConversationCreate, db: Session = Depends(get_db),
+                        current_user: User = Depends(get_current_user)):
+    conv = Conversation(user_id=current_user.id, title=req.title)
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return {"id": conv.id, "title": conv.title, "created_at": conv.created_at}
+
+
+@app.get("/conversations")
+def list_conversations(db: Session = Depends(get_db),
+                       current_user: User = Depends(get_current_user)):
+    convs = db.query(Conversation).filter(
+        Conversation.user_id == current_user.id
+    ).order_by(Conversation.created_at.desc()).all()
+    return [{"id": c.id, "title": c.title, "created_at": c.created_at} for c in convs]
+
+
+@app.get("/conversations/{conv_id}/messages")
+def get_messages(conv_id: int, db: Session = Depends(get_db),
+                 current_user: User = Depends(get_current_user)):
+    conv = db.query(Conversation).filter(
+        Conversation.id == conv_id,
+        Conversation.user_id == current_user.id
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Sohbet bulunamadı")
+    msgs = db.query(Message).filter(
+        Message.conversation_id == conv_id
+    ).order_by(Message.created_at).all()
+    return [{"role": m.role, "content": m.content, "skill_used": m.skill_used,
+             "created_at": m.created_at} for m in msgs]
+
+
+@app.delete("/conversations/{conv_id}")
+def delete_conversation(conv_id: int, db: Session = Depends(get_db),
+                        current_user: User = Depends(get_current_user)):
+    conv = db.query(Conversation).filter(
+        Conversation.id == conv_id,
+        Conversation.user_id == current_user.id
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Sohbet bulunamadı")
+    db.query(Message).filter(Message.conversation_id == conv_id).delete()
+    db.delete(conv)
+    db.commit()
+    return {"message": "Sohbet silindi"}
+
+
